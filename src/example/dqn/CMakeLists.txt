@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 
-add_subdirectory(mnist)
-add_subdirectory(cifar)
-add_subdirectory(dqn)
+include_directories(include)
+cc_test(test_dqn
+        SRCS include/gym/gym.h test_dqn.cc gym_binding.cc)
+target_link_libraries(test_dqn jsoncpp curl)
