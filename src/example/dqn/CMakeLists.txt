@@ -16,4 +16,4 @@
 include_directories(include)
 cc_test(test_dqn
         SRCS include/gym/gym.h test_dqn.cc gym_binding.cc)
-target_link_libraries(test_dqn jsoncpp curl)
+target_link_libraries(test_dqn jsoncpp curl tape tape_function tape_optimizer)
