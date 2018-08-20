@@ -13,7 +13,7 @@
 
 struct Item {
     std::vector<float> state;
-    std::vector<float> action;
+    int action;
     float reward;
     std::vector<float> next_state;
     bool done;
@@ -96,7 +96,7 @@ public:
         paddle::framework::TensorToVector(action_values_tensor, *dev_ctx_, &target_state_action_values);
         for (int i = 0; i < items.size(); i++) {
             auto item = items[i];
-            auto idx = i * action_count_ + int(item.action[0]);
+            auto idx = i * action_count_ + item.action;
 
             if (item.done) {
                 target_state_action_values[idx] = item.reward;
@@ -148,44 +148,79 @@ private:
     paddle::platform::DeviceContext* dev_ctx_;
 };
 
+class Agent {
+public:
+    Agent(std::shared_ptr<Gym::Environment> env, ReplayBuffer* buffer) : env_(env), buffer_(buffer) {}
+
+    void play_step(DQN* net, float epsilon) {
+        std::vector<float> action_values = net->inference(state_);
+        int best_action = -1;
+        float best_value = 0;
+        for (int i = 0; i < action_values.size(); i++) {
+            auto value = action_values[i];
+            if (best_action == -1 || best_value < value) {
+                best_value = value;
+                best_action = i;
+            }
+        }
+
+        Gym::State next_state;
+        env_->step({float(best_action)}, false, &next_state);
+        struct Item item = {state_, best_action, next_state.reward, next_state.observation, next_state.done};
+        buffer_->add(item);
+    }
+
+private:
+    std::shared_ptr<Gym::Environment> env_;
+    std::vector<float> state_;
+    ReplayBuffer* buffer_;
+};
+
 static
 void run_single_environment(
         const std::shared_ptr<Gym::Client>& client,
         const std::string& env_id,
         int episodes_to_run)
 {
+      std::vector<paddle::platform::Place> places;
+      places.emplace_back(paddle::platform::CPUPlace());
+      paddle::platform::DeviceContextPool::Init(places);
+
         std::shared_ptr<Gym::Environment> env = client->make(env_id);
         std::shared_ptr<Gym::Space> action_space = env->action_space();
         std::shared_ptr<Gym::Space> observation_space = env->observation_space();
         ReplayBuffer buf(100);
+        Agent agent(env, &buf);
+        DQN net(4, 2);
+        agent.play_step(&net, 0);
 
-        for (int e=0; e<episodes_to_run; ++e) {
-                printf("%s episode %i...\n", env_id.c_str(), e);
-                Gym::State s;
-                env->reset(&s);
-                float total_reward = 0;
-                int total_steps = 0;
-                while (1) {
-                    Gym::State next_state;
-                    std::vector<float> action = action_space->sample();
-                    env->step(action, false, &next_state);
-                    std::copy(next_state.observation.begin(),next_state.observation.end(),std::ostream_iterator<float>(std::cout, " " ));
-                    std::cout<<"\n";
+        // for (int e=0; e<episodes_to_run; ++e) {
+        //         printf("%s episode %i...\n", env_id.c_str(), e);
+        //         Gym::State s;
+        //         env->reset(&s);
+        //         float total_reward = 0;
+        //         int total_steps = 0;
+        //         while (1) {
+        //             Gym::State next_state;
+        //             std::vector<float> action = action_space->sample();
+        //             env->step(action, false, &next_state);
+        //             std::copy(next_state.observation.begin(),next_state.observation.end(),std::ostream_iterator<float>(std::cout, " " ));
+        //             std::cout<<"\n";
                     
-                    // auto ss = observation_space->sample();
-                    // std::copy(ss.begin(),ss.end(),std::ostream_iterator<int>(std::cout, " " ));
-                    // std::cout<<"\n";
+        //             // auto ss = observation_space->sample();
+        //             // std::copy(ss.begin(),ss.end(),std::ostream_iterator<int>(std::cout, " " ));
+        //             // std::cout<<"\n";
                     
-                    std::cout<< "reward: " << next_state.reward << "\n";
-                    struct Item item = {s.observation, action, next_state.reward, next_state.observation};
-                    buf.add(item);
-                    total_reward += next_state.reward;
-                    total_steps += 1;
-                    if (next_state.done) break;
-                }
-                printf("%s episode %i finished in %i steps with reward %0.2f\n",
-                        env_id.c_str(), e, total_steps, total_reward);
-        }
+        //             std::cout<< "reward: " << next_state.reward << "\n";
+        //             struct Item item = {s.observation, action, next_state.reward, next_state.observation};
+        //             buf.add(item);
+        //             total_reward += next_state.reward;
+        //             total_steps += 1;
+        //             if (next_state.done) break;
+        //         }
+        //         printf("%s episode %i finished in %i steps with reward %0.2f\n",
+        //                 env_id.c_str(), e, total_steps, total_reward);
+        // }
 }
 
 int main(int argc, char** argv)
